@@ -1,0 +1,602 @@
+---
+title: "STA 206 Project"
+author: "EdwardSun"
+date: "2023/11/16"
+output: pdf_document
+---
+
+## EDA
+
+### **Reading the data from the file**
+
+```{r}
+
+# Reading the data from the file
+abalone_data <- read.csv("abalone.txt", header = FALSE, sep = ",")
+
+# Assigning column names to the dataframe
+colnames(abalone_data) <- c("Sex", "Length", "Diameter", "Height", "WholeWeight", "ShuckedWeight", "VisceraWeight", "ShellWeight", "Rings")
+
+# Displaying the first few rows of the dataset to ensure it is read correctly
+head(abalone_data)
+
+
+```
+
+
+### **Checking for missing data in the dataset**
+
+```{r}
+
+# Checking for missing data in the dataset
+missing_values_count <- sum(is.na(abalone_data))
+
+# Printing the number of missing values
+print(missing_values_count)
+
+# If you want to check for missing values in each column separately
+missing_values_per_column <- colSums(is.na(abalone_data))
+
+# Printing the number of missing values in each column
+print(missing_values_per_column)
+
+```
+
+
+### **Examining the structure of the dataset to determine data types of each variable**
+
+```{r}
+# Examining the structure of the dataset to determine data types of each variable
+str(abalone_data)
+```
+
+
+### **Distribution of each Variables**  
+
+
+
+```{r}
+# Loading necessary libraries
+library(ggplot2)
+library(gridExtra)
+
+# Creating histograms for numerical variables
+plot_list <- list()
+numerical_vars <- c("Length", "Diameter", "Height", "WholeWeight", "ShuckedWeight", "VisceraWeight", "ShellWeight", "Rings")
+for (var in numerical_vars) {
+  p <- ggplot(abalone_data, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "blue", color = "black") +
+    ggtitle(paste("Histogram of", var))
+  plot_list[[var]] <- p
+}
+
+# Arranging the plots in a 4*2 grid
+grid.arrange(grobs = plot_list, ncol = 4, nrow = 2)
+
+# Plotting a bar plot for the categorical variable 'Sex'
+ggplot(abalone_data, aes(x = Sex)) +
+  geom_bar(fill = "orange", color = "black") +
+  ggtitle("Bar Plot of Sex")
+
+```
+
+
+\newpage
+
+### **Correlation between  Variables**
+
+```{r}
+
+library(corrplot)
+
+# Calculating the correlation matrix for numerical variables
+cor_matrix <- cor(abalone_data[, sapply(abalone_data, is.numeric)])
+
+# Plotting the correlation matrix
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45, addCoef.col = "black")
+
+```
+
+
+### **Y distribution**
+
+First show hist of rings  
+
+```{r}
+
+# Loading necessary library
+library(ggplot2)
+
+# Plotting the distribution of Rings
+ggplot(abalone_data, aes(x = Rings)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  ggtitle("Histogram of Rings") +
+  xlab("Rings") +
+  ylab("Frequency")
+
+
+```
+
+Positive Skewness---take log may make sense
+
+
+### Split Data set into Training Set and Test Set
+
+
+```{r}
+# Setting a seed for reproducibility
+set.seed(123)
+
+# Calculating the size of the training set (70% of the dataset)
+training_size <- floor(0.7 * nrow(abalone_data))
+
+# Randomly sampling indices for the training set
+training_indices <- sample(seq_len(nrow(abalone_data)), size = training_size)
+
+# Creating the training and testing datasets
+training_set <- abalone_data[training_indices, ]
+testing_set <- abalone_data[-training_indices, ]
+
+```
+
+
+## Baseline regression model (Y with all X variables)
+
+### Train a Linear Reg model on training set
+
+
+```{r}
+# Load the necessary library
+library(stats)
+
+# Building the linear regression model
+# The model uses all other variables to predict 'Rings'
+linear_model <- lm(Rings ~ ., data = training_set)
+
+# Summary of the linear model
+summary(linear_model)
+```
+
+### Testing 
+
+```{r}
+
+# Load the necessary library for plotting
+library(ggplot2)
+
+# Creating diagnostic plots for the linear model
+par(mfrow = c(2, 2))  # Setting up the plotting area for 4 plots
+plot(linear_model)    # Generates the 4 basic diagnostic plots
+
+
+```
+
+
+### Residuals vs all X variables
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Extracting residuals from the model
+residuals <- residuals(linear_model)
+
+# Plotting residuals vs each predictor variable, colored by Sex
+for(var in colnames(training_set)[-which(colnames(training_set) == "Rings")]) {
+  p <- ggplot(training_set, aes_string(x = var, y = residuals, color = "Sex")) +
+    geom_point() +
+    ggtitle(paste("Residuals vs", var, "by Sex")) +
+    xlab(var) +
+    ylab("Residuals")
+  print(p)
+}
+
+```
+
+### MSE/RMSE $R^2$ in Test Set 
+
+
+```{r}
+
+# Load necessary library
+library(Metrics)
+
+# Making predictions on the test set
+predictions <- predict(linear_model, newdata = testing_set)
+
+# Calculating MSE and RMSE
+mse_value <- mse(testing_set$Rings, predictions)
+rmse_value <- rmse(testing_set$Rings, predictions)
+
+# Printing MSE and RMSE
+cat("MSE on Test Set:", mse_value, "\n")
+cat("RMSE on Test Set:", rmse_value, "\n")
+
+# Calculating R-squared
+r_squared <- 1 - sum((testing_set$Rings - predictions)^2) / sum((testing_set$Rings - mean(testing_set$Rings))^2)
+
+# Printing R-squared
+cat("R-squared on Test Set:", r_squared)
+
+```
+
+## Transfer Y?
+
+```{r}
+
+# Load necessary library
+library(MASS)
+
+# Applying Box-Cox transformation to the model
+# Note: 'Rings' is the response variable
+boxcox_result <- boxcox(lm(Rings ~ ., data = training_set), 
+                        lambda = seq(-0.5, 0.5, by = 0.05))
+
+# Finding the lambda value that maximizes the log-likelihood
+optimal_lambda <- boxcox_result$x[which.max(boxcox_result$y)]
+cat("Optimal lambda for Box-Cox transformation:", optimal_lambda, "\n")
+
+print(optimal_lambda)
+
+```
+
+### Take a log Y
+
+```{r}
+# Applying log transformation to the 'Rings' variable in both training and test sets
+training_set$Log_Rings <- log(training_set$Rings)
+testing_set$Log_Rings <- log(testing_set$Rings)
+
+# Removing the original 'Rings' variable from both datasets
+training_set_transformed <- training_set[, !colnames(training_set) %in% c("Rings")]
+testing_set_transformed <- testing_set[, !colnames(testing_set) %in% c("Rings")]
+```
+
+
+## Reg for log Y
+
+```{r}
+# Building a new linear regression model using the transformed training set
+linear_model_transformed <- lm(Log_Rings ~ ., data = training_set_transformed)
+
+# Summary of the new linear model
+summary(linear_model_transformed)
+
+# Making predictions on the transformed test set
+# Note: We need to remove the 'Log_Rings' column from the test set for prediction
+predictions_transformed <- predict(linear_model_transformed, newdata = testing_set_transformed[, -which(colnames(testing_set_transformed) == "Log_Rings")])
+
+```
+
+### Performance on Test set
+
+```{r}
+
+# Calculating performance metrics (MSE, RMSE, R-squared) on the transformed test set
+mse_transformed <-mse(testing_set_transformed$Log_Rings,predictions_transformed)
+rmse_transformed <- rmse(testing_set_transformed$Log_Rings,predictions_transformed)
+r_squared_transformed <- 1 - sum((testing_set_transformed$Log_Rings - predictions_transformed)^2) / sum((testing_set_transformed$Log_Rings - mean(testing_set_transformed$Log_Rings))^2)
+
+# Printing the performance metrics
+cat("MSE on Transformed Test Set:", mse_transformed, "\n")
+cat("RMSE on Transformed Test Set:", rmse_transformed, "\n")
+cat("R-squared on Transformed Test Set:", r_squared_transformed)
+```
+
+
+
+###  Basic diagnostic plots for the transformed linear model
+
+```{r}
+
+# Creating basic diagnostic plots for the transformed linear model
+par(mfrow = c(2, 2))  # Setting up the plotting area for 4 plots
+plot(linear_model_transformed)    # Generates the 4 basic diagnostic plots
+
+```
+
+### Residuals vs X variables
+
+```{r}
+# Extracting residuals from the transformed model
+residuals_transformed <- residuals(linear_model_transformed)
+
+# Plotting residuals vs each predictor variable, colored by Sex
+for(var in colnames(training_set_transformed)[-which(colnames(training_set_transformed) %in% c("Log_Rings", "Sex"))]) {
+  p <- ggplot(training_set_transformed, aes_string(x = var, y = residuals_transformed, color = "Sex")) +
+    geom_point() +
+    ggtitle(paste("Residuals vs", var, "by Sex")) +
+    xlab(var) +
+    ylab("Residuals")
+  print(p)
+}
+```
+
+
+### VIF
+
+```{r}
+
+# Load the necessary library for VIF calculation
+library(car)
+
+# Calculating VIF for each predictor variable in the model
+vif_values <- vif(linear_model_transformed)
+
+# Printing the VIF values
+print(vif_values)
+
+# Checking for multicollinearity
+high_vif <- vif_values[vif_values > 5]
+if (length(high_vif) > 0) {
+  cat("Variables with high VIF (indicating potential multicollinearity):\n")
+  print(high_vif)
+} else {
+  cat("No significant multicollinearity detected.\n")
+}
+```
+
+## Stepwise linear Reg
+
+### BIC
+
+```{r}
+# Load necessary libraries
+library(MASS)
+
+# Stepwise model selection based on BIC
+stepwise_model <- stepAIC(linear_model_transformed, 
+                          scope = list(lower = ~1, upper = ~ .),
+                          direction = "both",
+                          k = log(nrow(training_set_transformed)),
+                          trace = FALSE)
+
+# Summary of the selected model
+summary(stepwise_model)
+
+```
+
+###  Diagnostic plots 
+
+
+```{r}
+# Assuming 'stepwise_model' is your model selected by BIC
+par(mfrow = c(2, 2))  # Setting up the plotting area for 4 plots
+
+# Generate each plot one by one and save them
+# Residuals vs Fitted
+jpeg("Residuals_vs_Fitted.jpeg")
+plot(stepwise_model, which=1)
+dev.off()
+
+# Normal Q-Q
+jpeg("Normal_QQ.jpeg")
+plot(stepwise_model, which=2)
+dev.off()
+
+# Scale-Location
+jpeg("Scale_Location.jpeg")
+plot(stepwise_model, which=3)
+dev.off()
+
+# Residuals vs Leverage
+jpeg("Residuals_vs_Leverage.jpeg")
+plot(stepwise_model, which=4)
+dev.off()
+
+```
+
+
+
+### Residuals vs X variables
+
+```{r}
+# Extracting residuals from the stepwise model
+residuals_stepwise <- residuals(stepwise_model)
+
+
+# Plotting residuals vs each predictor variable, colored by Sex
+for(var in colnames(training_set_transformed)[-which(colnames(training_set_transformed) %in% c("Log_Rings", "Sex"))]) {
+  p <- ggplot(training_set_transformed, aes_string(x = var, y = residuals_stepwise, color = "Sex")) +
+    geom_point() +
+    ggtitle(paste("Residuals vs", var, "by Sex")) +
+    xlab(var) +
+    ylab("Residuals")
+  print(p)
+}
+
+```
+
+### Performance on testing set
+
+```{r}
+# Making predictions on the test set using the stepwise selected model
+
+newdata = testing_set_transformed[, -which(colnames(testing_set_transformed) == "Log_Rings")]
+BIC_test_data = newdata[, -which(colnames(testing_set_transformed) == "Length")]
+
+predictions_stepwise <- predict(stepwise_model, newdata = BIC_test_data )
+
+BIC_test_data = testing_set_transformed[, -which(colnames(testing_set_transformed) == "Length")]
+# Calculating performance metrics (MSE, RMSE, R-squared) on the test set
+mse_stepwise <- mse(BIC_test_data$Log_Rings, predictions_stepwise)
+rmse_stepwise <- rmse(BIC_test_data$Log_Rings, predictions_stepwise)
+r_squared_stepwise <- 1 - sum((testing_set_transformed$Log_Rings - predictions_stepwise)^2) / sum((testing_set_transformed$Log_Rings - mean(testing_set_transformed$Log_Rings))^2)
+
+# Printing the performance metrics
+cat("MSE on Test Set (Stepwise Model):", mse_stepwise, "\n")
+cat("RMSE on Test Set (Stepwise Model):", rmse_stepwise, "\n")
+cat("R-squared on Test Set (Stepwise Model):", r_squared_stepwise)
+
+```
+
+
+### VIF for stepwise model
+
+```{r}
+# Load the necessary library for VIF calculation
+library(car)
+
+# Calculating VIF for each predictor variable in the stepwise model
+vif_values_stepwise <- vif(stepwise_model)
+
+# Printing the VIF values
+print(vif_values_stepwise)
+
+# Checking for multicollinearity
+high_vif_stepwise <- vif_values_stepwise[vif_values_stepwise > 5]
+if (length(high_vif_stepwise) > 0) {
+  cat("Variables with high VIF in the stepwise model (indicating potential multicollinearity):\n")
+  print(high_vif_stepwise)
+} else {
+  cat("No significant multicollinearity detected in the stepwise model.\n")
+}
+
+```
+
+
+
+### Print out those three model's performance
+
+Y ~ all X
+```{r}
+# Printing MSE and RMSE
+cat("MSE on Test Set:", mse_value, "\n")
+cat("RMSE on Test Set:", rmse_value, "\n")
+
+# Calculating R-squared
+r_squared <- 1 - sum((testing_set$Rings - predictions)^2) / sum((testing_set$Rings - mean(testing_set$Rings))^2)
+
+# Printing R-squared
+cat("R-squared on Test Set:", r_squared)
+```
+
+LogY ~ all X
+
+```{r}
+# Printing the performance metrics
+cat("MSE on Transformed Test Set:", mse_transformed, "\n")
+cat("RMSE on Transformed Test Set:", rmse_transformed, "\n")
+cat("R-squared on Transformed Test Set:", r_squared_transformed)
+
+```
+
+
+LogY ~ X stepwise
+```{r}
+# Printing the performance metrics
+cat("MSE on Test Set (Stepwise Model):", mse_stepwise, "\n")
+cat("RMSE on Test Set (Stepwise Model):", rmse_stepwise, "\n")
+cat("R-squared on Test Set (Stepwise Model):", r_squared_stepwise)
+```
+
+
+## Ridge?
+
+
+```{r}
+library(glmnet)
+
+# Transfer Sex to dummy variables and remove the original Sex column
+training_set_transformed_ridge <- cbind(training_set_transformed, model.matrix(~Sex - 1, data = training_set_transformed))[, -1]
+testing_set_transformed_ridge <- cbind(testing_set_transformed, model.matrix(~Sex - 1, data = testing_set_transformed))[, -1]
+
+# Ridge regression
+ridge_model <- glmnet(as.matrix(training_set_transformed_ridge[, -8]), training_set_transformed_ridge$Log_Rings, alpha = 0)
+
+# Save the ridge trace plot
+png("ridge_trace.png")
+plot(ridge_model, xvar = "lambda", label = TRUE)
+title("Ridge Trace")
+dev.off()
+
+# Cross-validation to find best lambda
+cvfit <- cv.glmnet(as.matrix(training_set_transformed_ridge[, -8]), training_set_transformed_ridge$Log_Rings, alpha = 0)
+
+# Save the cross-validation curve
+png("cv_for_optimal_lambda.png")
+plot(cvfit)
+title("Cross-Validation for Optimal Lambda")
+dev.off()
+
+# Retrieve and print the best lambda
+best_lambda <- cvfit$lambda.min
+print(best_lambda)
+
+# Train the final model with the best lambda
+final_model_ridge <- glmnet(as.matrix(training_set_transformed_ridge[, -8]), training_set_transformed_ridge$Log_Rings, alpha = 0, lambda = best_lambda)
+
+# Print the summary of the final model
+print(summary(final_model_ridge))
+
+```
+
+
+
+```{r}
+
+library(Metrics)
+# Predict on testing set
+predictions_ridge <- predict(final_model_ridge, as.matrix(testing_set_transformed_ridge[, -8]), s = best_lambda)
+
+# get mse and rmse on testing set
+mse <- mse(testing_set_transformed_ridge$Log_Rings,predictions_ridge)
+rmse <- rmse(testing_set_transformed_ridge$Log_Rings,predictions_ridge)
+
+rsquared <- 1 - (sum((predictions_ridge - testing_set_transformed_ridge$Log_Rings)^2) / sum((testing_set_transformed_ridge$Log_Rings - mean(testing_set_transformed_ridge$Log_Rings))^2))
+
+
+
+cat("Mean Squared Error (MSE):", mse, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+cat("R-squared (R²):", rsquared, "\n")
+```
+
+
+
+
+## LASSO
+
+```{R}
+library(glmnet)
+
+# Lasso regression
+lasso_model <- glmnet(as.matrix(training_set_transformed_ridge[, -8]), training_set_transformed_ridge$Log_Rings, alpha = 1)
+
+# Save the lasso trace plot
+png("lasso_trace.png")
+plot(lasso_model)
+dev.off()
+
+# Using cross-validation to get lambda
+cvfit <- cv.glmnet(as.matrix(training_set_transformed_ridge[, -8]), training_set_transformed_ridge$Log_Rings, alpha = 1)
+
+# Find best lambda
+best_lambda <- cvfit$lambda.min
+print(best_lambda)
+
+# Save the cross-validation curve
+png("cv_for_optimal_lambda_lasso.png")
+plot(cvfit)
+title("Cross-Validation for Optimal Lambda")
+dev.off()
+
+# Training with best lambda
+final_model_lasso <- glmnet(as.matrix(training_set_transformed_ridge[, -8]), training_set_transformed_ridge$Log_Rings, alpha = 1, lambda = best_lambda)
+
+# Predict on test set
+predictions_lasso <- predict(final_model_lasso, as.matrix(testing_set_transformed_ridge[, -8]), s = best_lambda)
+
+# Calculate mse, rmse, and rsquared
+mse <- mean((testing_set_transformed_ridge$Log_Rings - predictions_lasso)^2)
+rmse <- sqrt(mse)
+rsquared <- 1 - sum((predictions_lasso - testing_set_transformed_ridge$Log_Rings)^2) / sum((testing_set_transformed_ridge$Log_Rings - mean(testing_set_transformed_ridge$Log_Rings))^2)
+
+# Output results to console
+cat("Mean Squared Error (MSE):", mse, "\n")
+cat("Root Mean Squared Error (RMSE):", rmse, "\n")
+cat("R-squared (R²):", rsquared, "\n")
+```
+
+
+
